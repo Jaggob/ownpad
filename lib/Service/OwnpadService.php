@@ -219,7 +219,7 @@ class OwnpadService {
 			throw new OwnpadException($l10n->t('URL in your Etherpad/Ethercalc document does not match the allowed server'));
 		}
 
-		return $matches[1];
+		return urldecode($matches[1]);
 	}
 
 	public function getPadIdFromUrl(string $url): string {
