@@ -286,7 +286,11 @@ class OwnpadService {
 			return false;
 		}
 
-		return \OC\Files\Filesystem::file_put_contents($file, $newContent) !== false;
+		try {
+			return \OC\Files\Filesystem::file_put_contents($file, $newContent) !== false;
+		} catch (\OCP\Lock\LockedException $e) {
+			return false;
+		}
 	}
 
 	private function normalizeUrl(string $url): string {
