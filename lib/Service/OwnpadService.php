@@ -140,8 +140,7 @@ class OwnpadService {
 	public function parseOwnpadContent($file, $content, bool $publicMode = false) {
 		$l10n = \OC::$server->getL10N('ownpad');
 
-		preg_match('/URL=(.*)$/', $content, $matches);
-		$url = $matches[1];
+		$url = $this->extractUrlFromContent($content);
 
 		$eplHostApi = $this->config->getAppValue('ownpad', 'ownpad_etherpad_host', '');
 		$eplHostApi = rtrim($eplHostApi, '/');
@@ -168,22 +167,7 @@ class OwnpadService {
 			setcookie('sessionID', $session->sessionID, 0, '/', $cookieDomain, true, false);
 		}
 
-		/*
-		 * Not totally sure that this is the right way to proceed…
-		 *
-		 * First we decode the URL (to avoid double encode), then we
-		 * replace spaces with underscore (as they are converted as
-		 * such by Etherpad), then we encode the URL properly (and we
-		 * avoid to urlencode() the protocol scheme).
-		 *
-		 * Magic urlencode() function was stolen from this answer on
-		 * StackOverflow: <http://stackoverflow.com/a/7974253>.
-		 */
-		$url = urldecode($url);
-		$url = str_replace(' ', '_', $url);
-		$url = preg_replace_callback('#://([^/]+)/(=)?([^?]+)#', function ($match) {
-			return '://' . $match[1] . '/' . $match[2] . join('/', array_map('rawurlencode', explode('/', $match[3])));
-		}, $url);
+		$url = $this->normalizeUrl($url);
 
 		// Check for valid URL
 		// Get File-Ending
@@ -226,6 +210,114 @@ class OwnpadService {
 		}
 
 		return $url;
+	}
+
+	public function extractUrlFromContent(string $content): string {
+		$l10n = \OC::$server->getL10N('ownpad');
+
+		if (!preg_match('/^URL=(.*)$/m', $content, $matches)) {
+			throw new OwnpadException($l10n->t('URL in your Etherpad/Ethercalc document does not match the allowed server'));
+		}
+
+		return $matches[1];
+	}
+
+	public function getPadIdFromUrl(string $url): string {
+		$host = $this->config->getAppValue('ownpad', 'ownpad_etherpad_host', false);
+		$host = rtrim($host, '/');
+		$url = $this->normalizeUrl($url);
+
+		$regex = sprintf('#^%s/p/([^/]+)$#', preg_quote($host, '#'));
+		if (!preg_match($regex, $url, $matches)) {
+			$l10n = \OC::$server->getL10N('ownpad');
+			throw new OwnpadException($l10n->t('URL in your Etherpad/Ethercalc document does not match the allowed server'));
+		}
+
+		return $matches[1];
+	}
+
+	public function getPadText(string $padId): string {
+		$data = $this->etherpadCallApi('getText', ['padID' => $padId]);
+		return $data->text ?? '';
+	}
+
+	public function getPadRevisionsCount(string $padId): int {
+		$data = $this->etherpadCallApi('getRevisionsCount', ['padID' => $padId]);
+		return (int)($data->revisions ?? 0);
+	}
+
+	public function syncPadFile(string $file): bool {
+		$l10n = \OC::$server->getL10N('ownpad');
+
+		if ($this->config->getAppValue('ownpad', 'ownpad_etherpad_enable', 'no') === 'no' ||
+			$this->config->getAppValue('ownpad', 'ownpad_etherpad_useapi', 'no') === 'no') {
+			throw new OwnpadException($l10n->t('Etherpad API is disabled.'));
+		}
+		if ($this->config->getAppValue('ownpad', 'ownpad_pad_sync_enabled', 'yes') === 'no') {
+			return false;
+		}
+
+		if (!\OC\Files\Filesystem::file_exists($file)) {
+			throw new OwnpadException($l10n->t('File not found.'));
+		}
+
+		$content = \OC\Files\Filesystem::file_get_contents($file);
+		$url = $this->extractUrlFromContent($content);
+		$padId = $this->getPadIdFromUrl($url);
+
+		$indexContent = $this->config->getAppValue('ownpad', 'ownpad_pad_sync_index_content', 'yes') === 'yes';
+		if (!$indexContent) {
+			return false;
+		}
+
+		$lastRevision = $this->extractLastRevisionFromContent($content);
+		$currentRevision = $this->getPadRevisionsCount($padId);
+
+		if ($lastRevision !== null && $currentRevision === $lastRevision) {
+			return false;
+		}
+
+		$text = $this->getPadText($padId);
+		$newContent = $this->buildSyncedContent($url, $text, $currentRevision);
+
+		if ($newContent === $content) {
+			return false;
+		}
+
+		return \OC\Files\Filesystem::file_put_contents($file, $newContent) !== false;
+	}
+
+	private function normalizeUrl(string $url): string {
+		/*
+		 * Not totally sure that this is the right way to proceed…
+		 *
+		 * First we decode the URL (to avoid double encode), then we
+		 * replace spaces with underscore (as they are converted as
+		 * such by Etherpad), then we encode the URL properly (and we
+		 * avoid to urlencode() the protocol scheme).
+		 *
+		 * Magic urlencode() function was stolen from this answer on
+		 * StackOverflow: <http://stackoverflow.com/a/7974253>.
+		 */
+		$url = urldecode($url);
+		$url = str_replace(' ', '_', $url);
+		$url = preg_replace_callback('#://([^/]+)/(=)?([^?]+)#', function ($match) {
+			return '://' . $match[1] . '/' . $match[2] . join('/', array_map('rawurlencode', explode('/', $match[3])));
+		}, $url);
+
+		return $url;
+	}
+
+	private function buildSyncedContent(string $url, string $text, int $revision): string {
+		$normalizedText = str_replace("\r\n", "\n", $text);
+		return "[InternetShortcut]\nURL={$url}\n; ownpad_last_rev={$revision}\n\n; Ownpad full-text index (auto-generated). Do not edit.\n" . $normalizedText;
+	}
+
+	private function extractLastRevisionFromContent(string $content): ?int {
+		if (preg_match('/^; ownpad_last_rev=(\\d+)$/m', $content, $matches)) {
+			return (int)$matches[1];
+		}
+		return null;
 	}
 
 	public function testEtherpadToken() {

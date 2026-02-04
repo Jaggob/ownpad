@@ -87,4 +87,67 @@ class AjaxController extends Controller {
 			return new JSONResponse($message, Http::STATUS_FORBIDDEN);
 		}
 	}
+
+	/**
+	 * @NoAdminRequired
+	 */
+	public function syncpad($file) {
+		\OC_Util::setupFS();
+
+		$file = isset($file) ? '/' . trim($file, '/\\') : '';
+		if ($file === '' || substr($file, -4) !== '.pad') {
+			$message = [
+				'data' => ['message' => 'Invalid file path'],
+				'status' => 'error',
+			];
+			return new JSONResponse($message, Http::STATUS_BAD_REQUEST);
+		}
+
+		try {
+			$changed = $this->service->syncPadFile($file);
+			return new JSONResponse([
+				'data' => ['changed' => $changed],
+				'status' => 'success',
+			]);
+		} catch(OwnpadException $e) {
+			$message = [
+				'data' => ['message' => $e->getMessage()],
+				'status' => 'error',
+			];
+			return new JSONResponse($message, Http::STATUS_BAD_REQUEST);
+		}
+	}
+
+	/**
+	 * @AdminRequired
+	 */
+	public function getsyncsettings() {
+		$appConfig = \OC::$server->getConfig();
+		$interval = (int)$appConfig->getAppValue('ownpad', 'ownpad_pad_sync_interval_seconds', '120');
+		$enabled = $appConfig->getAppValue('ownpad', 'ownpad_pad_sync_enabled', 'yes');
+		$indexContent = $appConfig->getAppValue('ownpad', 'ownpad_pad_sync_index_content', 'yes');
+
+		return new JSONResponse([
+			'data' => [
+				'intervalSeconds' => max(30, $interval),
+				'enabled' => $enabled === 'yes',
+				'indexContent' => $indexContent === 'yes',
+			],
+		]);
+	}
+
+	/**
+	 * @AdminRequired
+	 */
+	public function setsyncsettings($intervalSeconds, $enabled, $indexContent) {
+		$appConfig = \OC::$server->getConfig();
+		$interval = max(30, (int)$intervalSeconds);
+		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_interval_seconds', (string)$interval);
+		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_enabled', $enabled ? 'yes' : 'no');
+		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_index_content', $indexContent ? 'yes' : 'no');
+
+		return new JSONResponse([
+			'data' => ['status' => 'ok'],
+		]);
+	}
 }

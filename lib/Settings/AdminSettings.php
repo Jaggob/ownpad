@@ -51,6 +51,7 @@ class AdminSettings implements ISettings {
 		$this->initialState->provideInitialState('settings', $parameters);
 
 		\OCP\Util::addScript($this->appName, 'ownpad-settings');
+		\OCP\Util::addScript($this->appName, 'ownpad-sync-settings');
 		return new TemplateResponse($this->appName, 'settings', [], '');
 	}
 

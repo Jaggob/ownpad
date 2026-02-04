@@ -66,6 +66,12 @@ class DisplayController extends Controller {
 			'ownpad_version' => $this->appManager->getAppVersion('ownpad'),
 			'title' => $file,
 		];
+		$syncEnabled = \OC::$server->getConfig()->getAppValue('ownpad', 'ownpad_pad_sync_enabled', 'yes') === 'yes';
+		if ($syncEnabled) {
+			$params['file'] = $file;
+			$params['syncUrl'] = $this->urlGenerator->linkToRoute('ownpad.ajax.syncpad');
+			$params['syncIntervalSeconds'] = max(30, (int)\OC::$server->getConfig()->getAppValue('ownpad', 'ownpad_pad_sync_interval_seconds', '120'));
+		}
 
 		try {
 			$params['url'] = $this->ownpadService->parseOwnpadContent($file, $content);
