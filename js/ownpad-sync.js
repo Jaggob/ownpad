@@ -69,8 +69,22 @@
     }
   });
 
+  window.addEventListener('beforeunload', syncOnUnload);
+  window.addEventListener('unload', syncOnUnload);
+  window.addEventListener('popstate', syncOnUnload);
   window.addEventListener('pagehide', () => {
     clearInterval(timer);
     syncOnUnload();
   });
+
+  const frame = document.getElementById('ownpad_frame');
+  if (frame) {
+    const observer = new MutationObserver(() => {
+      if (!document.body.contains(frame)) {
+        observer.disconnect();
+        syncOnUnload();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
 })();
