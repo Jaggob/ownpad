@@ -49,7 +49,10 @@
         "Sync while pad is open (and on close)": "Synchronisieren, während das Pad geöffnet ist (und beim Schließen)",
         "Store pad content in file (indexable)": "Pad-Inhalt in die Datei schreiben (durchsuchbar)",
         "Sync interval (seconds)": "Synchronisationsintervall (Sekunden)",
-        "Save": "Speichern"
+        "Save": "Speichern",
+        "Synchronizes pad content when you open the pad, while it stays open, and once more when you close it.": "Synchronisiert den Pad-Inhalt beim Öffnen, während er geöffnet ist, und noch einmal beim Schließen.",
+        "Sync pad content into file (indexable)": "Pad-Inhalt in Datei synchronisieren (durchsuchbar)",
+        "Sync interval (when pad is open)": "Synchronisationsintervall (wenn das Pad geöffnet ist)"
     },
     "pluralForm": "nplurals=2; plural=(n != 1);"
 }

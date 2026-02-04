@@ -5,7 +5,6 @@
   }
 
   const enabledEl = document.getElementById('ownpad-sync-enabled');
-  const indexEl = document.getElementById('ownpad-sync-index-content');
   const intervalEl = document.getElementById('ownpad-sync-interval');
   const saveEl = document.getElementById('ownpad-sync-save');
   const statusEl = document.getElementById('ownpad-sync-status');
@@ -54,7 +53,6 @@
         return;
       }
       enabledEl.checked = !!data.enabled;
-      indexEl.checked = !!data.indexContent;
       intervalEl.value = data.intervalSeconds ?? 120;
     }).catch(() => {
       setStatus('Failed to load settings');
@@ -70,7 +68,7 @@
     const body = new URLSearchParams();
     body.set('intervalSeconds', interval.toString());
     body.set('enabled', enabledEl.checked ? '1' : '0');
-    body.set('indexContent', indexEl.checked ? '1' : '0');
+    body.set('indexContent', enabledEl.checked ? '1' : '0');
     body.set('requesttoken', requestToken);
 
     fetch(OC.generateUrl('/apps/ownpad/ajax/v1.0/setsyncsettings'), {
