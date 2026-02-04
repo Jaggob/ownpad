@@ -237,11 +237,13 @@ class OwnpadService {
 	}
 
 	public function getPadText(string $padId): string {
+		$padId = urldecode($padId);
 		$data = $this->etherpadCallApi('getText', ['padID' => $padId]);
 		return $data->text ?? '';
 	}
 
 	public function getPadRevisionsCount(string $padId): int {
+		$padId = urldecode($padId);
 		$data = $this->etherpadCallApi('getRevisionsCount', ['padID' => $padId]);
 		return (int)($data->revisions ?? 0);
 	}
