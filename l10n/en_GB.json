@@ -52,7 +52,9 @@
         "Save": "Save",
         "Synchronizes pad content when you open the pad, while it stays open, and once more when you close it.": "Synchronizes pad content when you open the pad, while it stays open, and once more when you close it.",
         "Sync pad content into file (indexable)": "Sync pad content into file (indexable)",
-        "Sync interval (when pad is open)": "Sync interval (when pad is open)"
+        "Sync interval (when pad is open)": "Sync interval (when pad is open)",
+        "Synchronizes pad content when you open the pad, while it stays open, and once more when you close it. This enables Nextcloud search.": "Synchronizes pad content when you open the pad, while it stays open, and once more when you close it. This enables Nextcloud search.",
+        "Sync pad content into file": "Sync pad content into file"
     },
     "pluralForm": "nplurals=2; plural=(n != 1);"
 }
