@@ -126,12 +126,17 @@ class AjaxController extends Controller {
 		$interval = (int)$appConfig->getAppValue('ownpad', 'ownpad_pad_sync_interval_seconds', '120');
 		$enabled = $appConfig->getAppValue('ownpad', 'ownpad_pad_sync_enabled', 'yes');
 		$indexContent = $appConfig->getAppValue('ownpad', 'ownpad_pad_sync_index_content', 'yes');
+		$format = strtolower(trim($appConfig->getAppValue('ownpad', 'ownpad_pad_sync_format', 'plain')));
+		if (!in_array($format, ['plain', 'html', 'markdown'], true)) {
+			$format = 'plain';
+		}
 
 		return new JSONResponse([
 			'data' => [
 				'intervalSeconds' => max(30, $interval),
 				'enabled' => $enabled === 'yes',
 				'indexContent' => $indexContent === 'yes',
+				'format' => $format,
 			],
 		]);
 	}
@@ -139,14 +144,19 @@ class AjaxController extends Controller {
 	/**
 	 * @AdminRequired
 	 */
-	public function setsyncsettings($intervalSeconds, $enabled, $indexContent) {
+	public function setsyncsettings($intervalSeconds, $enabled, $indexContent, $format = 'plain') {
 		$appConfig = \OC::$server->getConfig();
 		$interval = max(30, (int)$intervalSeconds);
 		$enabledValue = $enabled ? 'yes' : 'no';
 		$indexContentValue = $indexContent ? 'yes' : 'no';
+		$formatValue = strtolower(trim((string)$format));
+		if (!in_array($formatValue, ['plain', 'html', 'markdown'], true)) {
+			$formatValue = 'plain';
+		}
 		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_interval_seconds', (string)$interval);
 		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_enabled', $enabledValue);
 		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_index_content', $indexContentValue);
+		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_format', $formatValue);
 
 		return new JSONResponse([
 			'data' => ['status' => 'ok'],

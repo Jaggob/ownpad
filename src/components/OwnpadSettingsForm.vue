@@ -115,8 +115,26 @@
 						min="30"
 						step="1"
 						:value.sync="settings.padSyncIntervalSeconds" />
+					<div class="ownpad__labeled-entry ownpad__input">
+						<label for="ownpad-sync-format">{{ t('ownpad', 'Saved sync format') }}</label>
+						<select id="ownpad-sync-format"
+							:value="settings.padSyncFormat"
+							@change="$set(settings, 'padSyncFormat', $event.target.value)">
+							<option value="plain">
+								{{ t('ownpad', 'Plain text') }}
+							</option>
+							<option value="html">
+								{{ t('ownpad', 'HTML') }}
+							</option>
+							<option value="markdown">
+								{{ t('ownpad', 'Markdown (best effort)') }}
+							</option>
+						</select>
+					</div>
 					<NcNoteCard type="info">
 						{{ t('ownpad', 'Synchronizes pad content when you open the pad, while it stays open, and once more when you close it. This enables Nextcloud search.') }}
+						<br>
+						{{ t('ownpad', 'Markdown uses a best-effort conversion from Etherpad HTML and may not preserve every formatting detail.') }}
 					</NcNoteCard>
 				</fieldset>
 			</div>

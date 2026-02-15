@@ -48,6 +48,7 @@ class AdminSettings implements ISettings {
 			'padSyncEnabled' => $this->getHumanBooleanConfig('ownpad', 'ownpad_pad_sync_enabled', true),
 			'padSyncIntervalSeconds' => max(30, (int)$this->config->getAppValue('ownpad', 'ownpad_pad_sync_interval_seconds', '120')),
 			'padSyncIndexContent' => $this->getHumanBooleanConfig('ownpad', 'ownpad_pad_sync_index_content', true),
+			'padSyncFormat' => $this->getPadSyncFormat(),
 			'mimetypeEpConfigured' => \OC::$server->getMimeTypeDetector()->detectPath("test.pad") === 'application/x-ownpad',
 			'mimetypeEcConfigured' => \OC::$server->getMimeTypeDetector()->detectPath("test.calc") === 'application/x-ownpad-calc',
 		];
@@ -63,6 +64,15 @@ class AdminSettings implements ISettings {
 	 */
 	private function getHumanBooleanConfig(string $app, string $key, bool $default = false): bool {
 		return $this->config->getAppValue($app, $key, $default ? 'yes' : 'no') === 'yes';
+	}
+
+	private function getPadSyncFormat(): string {
+		$format = strtolower(trim($this->config->getAppValue('ownpad', 'ownpad_pad_sync_format', 'plain')));
+		$allowedFormats = ['plain', 'html', 'markdown'];
+		if (!in_array($format, $allowedFormats, true)) {
+			return 'plain';
+		}
+		return $format;
 	}
 
 	/**
