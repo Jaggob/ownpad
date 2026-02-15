@@ -45,13 +45,15 @@ class AdminSettings implements ISettings {
 			'etherpadCookieDomain' => $this->config->getAppValue('ownpad', 'ownpad_etherpad_cookie_domain', ''),
 			'ethercalcEnable' => $this->getHumanBooleanConfig('ownpad', 'ownpad_ethercalc_enable', false),
 			'ethercalcHost' => $this->config->getAppValue('ownpad', 'ownpad_ethercalc_host', ''),
+			'padSyncEnabled' => $this->getHumanBooleanConfig('ownpad', 'ownpad_pad_sync_enabled', true),
+			'padSyncIntervalSeconds' => max(30, (int)$this->config->getAppValue('ownpad', 'ownpad_pad_sync_interval_seconds', '120')),
+			'padSyncIndexContent' => $this->getHumanBooleanConfig('ownpad', 'ownpad_pad_sync_index_content', true),
 			'mimetypeEpConfigured' => \OC::$server->getMimeTypeDetector()->detectPath("test.pad") === 'application/x-ownpad',
 			'mimetypeEcConfigured' => \OC::$server->getMimeTypeDetector()->detectPath("test.calc") === 'application/x-ownpad-calc',
 		];
 		$this->initialState->provideInitialState('settings', $parameters);
 
 		\OCP\Util::addScript($this->appName, 'ownpad-settings');
-		\OCP\Util::addScript($this->appName, 'ownpad-sync-settings');
 		return new TemplateResponse($this->appName, 'settings', [], '');
 	}
 

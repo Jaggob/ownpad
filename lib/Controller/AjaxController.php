@@ -143,9 +143,10 @@ class AjaxController extends Controller {
 		$appConfig = \OC::$server->getConfig();
 		$interval = max(30, (int)$intervalSeconds);
 		$enabledValue = $enabled ? 'yes' : 'no';
+		$indexContentValue = $indexContent ? 'yes' : 'no';
 		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_interval_seconds', (string)$interval);
 		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_enabled', $enabledValue);
-		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_index_content', $enabledValue);
+		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_index_content', $indexContentValue);
 
 		return new JSONResponse([
 			'data' => ['status' => 'ok'],
