@@ -214,12 +214,29 @@ class OwnpadService {
 
 	public function extractUrlFromContent(string $content): string {
 		$l10n = \OC::$server->getL10N('ownpad');
+		$normalizedContent = str_replace("\r\n", "\n", $content);
+		$lines = explode("\n", $normalizedContent);
+		$maxHeaderLines = 25;
 
-		if (!preg_match('/^URL=(.*)$/m', $content, $matches)) {
-			throw new OwnpadException($l10n->t('URL in your Etherpad/Ethercalc document does not match the allowed server'));
+		/*
+		 * Parse URL only from the file header at the top to avoid matching
+		 * `URL=` that could appear inside synced pad content.
+		 */
+		foreach ($lines as $index => $line) {
+			if ($index >= $maxHeaderLines) {
+				break;
+			}
+
+			if ($index > 0 && trim($line) === '') {
+				break;
+			}
+
+			if (preg_match('/^URL=(.*)$/', $line, $matches)) {
+				return urldecode($matches[1]);
+			}
 		}
 
-		return urldecode($matches[1]);
+		throw new OwnpadException($l10n->t('URL in your Etherpad/Ethercalc document does not match the allowed server'));
 	}
 
 	public function getPadIdFromUrl(string $url): string {
