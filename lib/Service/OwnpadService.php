@@ -519,6 +519,10 @@ class OwnpadService {
 		if ($this->config->getAppValue('ownpad', 'ownpad_etherpad_useapi', 'no') === 'no') {
 			return;
 		}
+		if (!$this->isDeleteOnTrashEnabled()) {
+			// If the original pad was never deleted, keep the existing URL as-is.
+			return;
+		}
 
 		try {
 			$content = (string)$file->getContent();
