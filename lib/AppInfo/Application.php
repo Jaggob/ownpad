@@ -50,6 +50,10 @@ class Application extends App implements IBootstrap {
 		if (class_exists('OCA\\Files_Trashbin\\Events\\MoveToTrashEvent')) {
 			$context->registerEventListener('OCA\\Files_Trashbin\\Events\\MoveToTrashEvent', \OCA\Ownpad\Listeners\MoveToTrashListener::class);
 		}
+
+		if (class_exists('OCP\\Files\\Events\\Node\\NodeCreatedEvent')) {
+			$context->registerEventListener('OCP\\Files\\Events\\Node\\NodeCreatedEvent', \OCA\Ownpad\Listeners\RestorePadOnCreateListener::class);
+		}
 	}
 
 	public function boot(IBootContext $context): void {

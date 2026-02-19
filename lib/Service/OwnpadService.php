@@ -13,6 +13,7 @@ namespace OCA\Ownpad\Service;
 
 use Exception;
 
+use OCP\Files\File;
 use OCP\IConfig;
 use OCP\IUserSession;
 
@@ -31,6 +32,8 @@ class OwnpadService {
 	public const EPL_CODE_INTERNAL_ERROR = 2;
 	public const EPL_CODE_INVALID_FUNCTION = 3;
 	public const EPL_CODE_INVALID_API_KEY = 4;
+	private const RESTORE_HTML_BEGIN_MARKER = '; ownpad_restore_html_begin';
+	private const RESTORE_HTML_END_MARKER = '; ownpad_restore_html_end';
 
 	public function __construct(
 		private IConfig $config,
@@ -511,6 +514,112 @@ class OwnpadService {
 		}
 	}
 
+	public function snapshotPadHtmlInFileForRestore(File $file, string $url): void {
+		if ($this->config->getAppValue('ownpad', 'ownpad_etherpad_enable', 'no') === 'no') {
+			return;
+		}
+		if ($this->config->getAppValue('ownpad', 'ownpad_etherpad_useapi', 'no') === 'no') {
+			return;
+		}
+
+		$padId = $this->extractPadIdFromUrl($url);
+		if ($padId === null) {
+			return;
+		}
+
+		try {
+			$html = $this->getPadHtml($padId);
+		} catch (Exception) {
+			return;
+		}
+
+		$currentContent = '';
+		try {
+			$currentContent = (string)$file->getContent();
+		} catch (\Throwable) {
+			$currentContent = '';
+		}
+		if ($currentContent === '') {
+			$currentContent = sprintf("[InternetShortcut]\nURL=%s\n", $url);
+		}
+
+		$newContent = $this->injectRestoreHtmlPayload($currentContent, $html);
+		if ($newContent === $currentContent) {
+			return;
+		}
+
+		try {
+			$file->putContent($newContent);
+		} catch (\Throwable) {
+			// Best-effort snapshot. Do not block trash action.
+		}
+	}
+
+	public function restoreDeletedPadFromFile(File $file): void {
+		if ($this->config->getAppValue('ownpad', 'ownpad_etherpad_enable', 'no') === 'no') {
+			return;
+		}
+		if ($this->config->getAppValue('ownpad', 'ownpad_etherpad_useapi', 'no') === 'no') {
+			return;
+		}
+
+		try {
+			$content = (string)$file->getContent();
+		} catch (\Throwable) {
+			return;
+		}
+
+		$restoreHtml = $this->extractRestoreHtmlPayload($content);
+		if ($restoreHtml === null) {
+			return;
+		}
+
+		try {
+			$url = $this->extractUrlFromContent($content);
+		} catch (\Throwable) {
+			return;
+		}
+
+		$padId = $this->extractPadIdFromUrl($url);
+		if ($padId === null) {
+			return;
+		}
+
+		$padState = $this->detectPadState($padId);
+		if ($padState === null) {
+			return;
+		}
+
+		if ($padState === false) {
+			try {
+				$this->etherpadCallApi('createPad', ['padID' => $padId]);
+			} catch (\InvalidArgumentException $e) {
+				if (stripos($e->getMessage(), 'already') === false) {
+					return;
+				}
+			} catch (Exception) {
+				return;
+			}
+
+			try {
+				$this->etherpadCallApi('setHTML', ['padID' => $padId, 'html' => $restoreHtml], 'POST');
+			} catch (Exception) {
+				return;
+			}
+		}
+
+		$cleanContent = $this->removeRestoreHtmlPayload($content);
+		if ($cleanContent !== $content) {
+			try {
+				$file->putContent($cleanContent);
+			} catch (\Throwable) {
+				// Non-fatal; restored pad is already usable.
+			}
+		}
+
+		$this->storePadUrlForFileId((int)$file->getId(), $url);
+	}
+
 	public function storePadUrlForFileId(int $fileId, string $url): void {
 		if ($fileId <= 0 || $url === '') {
 			return;
@@ -535,6 +644,70 @@ class OwnpadService {
 
 	public function isDeleteOnTrashEnabled(): bool {
 		return $this->config->getAppValue('ownpad', 'ownpad_delete_on_trash', 'no') === 'yes';
+	}
+
+	private function extractPadIdFromUrl(string $url): ?string {
+		$host = rtrim($this->config->getAppValue('ownpad', 'ownpad_etherpad_host', ''), '/');
+		if ($host === '') {
+			return null;
+		}
+
+		$pattern = '#^' . preg_quote($host, '#') . '/p/([^/]+)$#';
+		if (!preg_match($pattern, trim($url), $matches)) {
+			return null;
+		}
+
+		return $matches[1] ?? null;
+	}
+
+	private function injectRestoreHtmlPayload(string $content, string $html): string {
+		$normalized = str_replace("\r\n", "\n", $this->removeRestoreHtmlPayload($content));
+		$payload = base64_encode($html);
+		$wrappedPayload = rtrim(chunk_split($payload, 120, "\n"), "\n");
+		$block = "\n\n" . self::RESTORE_HTML_BEGIN_MARKER . "\n" . $wrappedPayload . "\n" . self::RESTORE_HTML_END_MARKER . "\n";
+		return rtrim($normalized, "\n") . $block;
+	}
+
+	private function extractRestoreHtmlPayload(string $content): ?string {
+		$normalized = str_replace("\r\n", "\n", $content);
+		$pattern = '/' . preg_quote(self::RESTORE_HTML_BEGIN_MARKER, '/') . "\n(.*?)\n" . preg_quote(self::RESTORE_HTML_END_MARKER, '/') . '/s';
+		if (!preg_match($pattern, $normalized, $matches)) {
+			return null;
+		}
+
+		$encoded = preg_replace('/\s+/', '', $matches[1]);
+		if (!is_string($encoded) || $encoded === '') {
+			return '';
+		}
+
+		$decoded = base64_decode($encoded, true);
+		if ($decoded === false) {
+			return null;
+		}
+
+		return $decoded;
+	}
+
+	private function removeRestoreHtmlPayload(string $content): string {
+		$normalized = str_replace("\r\n", "\n", $content);
+		$pattern = '/\n*' . preg_quote(self::RESTORE_HTML_BEGIN_MARKER, '/') . "\n.*?\n" . preg_quote(self::RESTORE_HTML_END_MARKER, '/') . '\n*/s';
+		$cleaned = preg_replace($pattern, "\n", $normalized);
+		$cleaned = is_string($cleaned) ? $cleaned : $normalized;
+		return rtrim($cleaned) . "\n";
+	}
+
+	private function detectPadState(string $padId): ?bool {
+		try {
+			$this->getPadRevisionsCount($padId);
+			return true;
+		} catch (\InvalidArgumentException $e) {
+			if (stripos($e->getMessage(), 'does not exist') !== false) {
+				return false;
+			}
+			return null;
+		} catch (Exception) {
+			return null;
+		}
 	}
 
 	/**
