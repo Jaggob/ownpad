@@ -66,6 +66,13 @@ class DisplayController extends Controller {
 			'ownpad_version' => $this->appManager->getAppVersion('ownpad'),
 			'title' => $file,
 		];
+		$config = \OC::$server->getConfig();
+		$syncEnabled = $this->isPadSyncActiveForFile($file, $config);
+		if ($syncEnabled) {
+			$params['file'] = $file;
+			$params['syncUrl'] = $this->urlGenerator->linkToRoute('ownpad.ajax.syncpad');
+			$params['syncIntervalSeconds'] = max(30, (int)$config->getAppValue('ownpad', 'ownpad_pad_sync_interval_seconds', '120'));
+		}
 
 		try {
 			$params['url'] = $this->ownpadService->parseOwnpadContent($file, $content);
@@ -74,5 +81,22 @@ class DisplayController extends Controller {
 			$params["error"] = $e->getMessage();
 			return new TemplateResponse($this->appName, 'noviewer', $params, 'blank');
 		}
+	}
+
+	private function isPadSyncActiveForFile(string $file, \OCP\IConfig $config): bool {
+		if (substr($file, -4) !== '.pad') {
+			return false;
+		}
+
+		if ($config->getAppValue('ownpad', 'ownpad_pad_sync_enabled', 'yes') !== 'yes') {
+			return false;
+		}
+
+		if ($config->getAppValue('ownpad', 'ownpad_pad_sync_index_content', 'yes') !== 'yes') {
+			return false;
+		}
+
+		return $config->getAppValue('ownpad', 'ownpad_etherpad_enable', 'no') !== 'no'
+			&& $config->getAppValue('ownpad', 'ownpad_etherpad_useapi', 'no') !== 'no';
 	}
 }

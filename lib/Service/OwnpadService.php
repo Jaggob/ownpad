@@ -140,8 +140,7 @@ class OwnpadService {
 	public function parseOwnpadContent($file, $content, bool $publicMode = false) {
 		$l10n = \OC::$server->getL10N('ownpad');
 
-		preg_match('/URL=(.*)$/', $content, $matches);
-		$url = $matches[1];
+		$url = $this->extractUrlFromContent($content);
 
 		$eplHostApi = $this->config->getAppValue('ownpad', 'ownpad_etherpad_host', '');
 		$eplHostApi = rtrim($eplHostApi, '/');
@@ -168,22 +167,7 @@ class OwnpadService {
 			setcookie('sessionID', $session->sessionID, 0, '/', $cookieDomain, true, false);
 		}
 
-		/*
-		 * Not totally sure that this is the right way to proceed…
-		 *
-		 * First we decode the URL (to avoid double encode), then we
-		 * replace spaces with underscore (as they are converted as
-		 * such by Etherpad), then we encode the URL properly (and we
-		 * avoid to urlencode() the protocol scheme).
-		 *
-		 * Magic urlencode() function was stolen from this answer on
-		 * StackOverflow: <http://stackoverflow.com/a/7974253>.
-		 */
-		$url = urldecode($url);
-		$url = str_replace(' ', '_', $url);
-		$url = preg_replace_callback('#://([^/]+)/(=)?([^?]+)#', function ($match) {
-			return '://' . $match[1] . '/' . $match[2] . join('/', array_map('rawurlencode', explode('/', $match[3])));
-		}, $url);
+		$url = $this->normalizeUrl($url);
 
 		// Check for valid URL
 		// Get File-Ending
@@ -226,6 +210,212 @@ class OwnpadService {
 		}
 
 		return $url;
+	}
+
+	public function extractUrlFromContent(string $content): string {
+		$l10n = \OC::$server->getL10N('ownpad');
+		$normalizedContent = str_replace("\r\n", "\n", $content);
+		$lines = explode("\n", $normalizedContent);
+		$maxHeaderLines = 25;
+
+		/*
+		 * Parse URL only from the file header at the top to avoid matching
+		 * `URL=` that could appear inside synced pad content.
+		 */
+		foreach ($lines as $index => $line) {
+			if ($index >= $maxHeaderLines) {
+				break;
+			}
+
+			if ($index > 0 && trim($line) === '') {
+				break;
+			}
+
+			if (preg_match('/^URL=(.*)$/', $line, $matches)) {
+				return urldecode($matches[1]);
+			}
+		}
+
+		throw new OwnpadException($l10n->t('URL in your Etherpad/Ethercalc document does not match the allowed server'));
+	}
+
+	public function getPadIdFromUrl(string $url): string {
+		$host = $this->config->getAppValue('ownpad', 'ownpad_etherpad_host', false);
+		$host = rtrim($host, '/');
+		$url = $this->normalizeUrl($url);
+
+		$regex = sprintf('#^%s/p/([^/]+)$#', preg_quote($host, '#'));
+		if (!preg_match($regex, $url, $matches)) {
+			$l10n = \OC::$server->getL10N('ownpad');
+			throw new OwnpadException($l10n->t('URL in your Etherpad/Ethercalc document does not match the allowed server'));
+		}
+
+		return $matches[1];
+	}
+
+	public function getPadText(string $padId): string {
+		$padId = urldecode($padId);
+		$data = $this->etherpadCallApi('getText', ['padID' => $padId]);
+		return $data->text ?? '';
+	}
+
+	public function getPadHtml(string $padId): string {
+		$padId = urldecode($padId);
+		$data = $this->etherpadCallApi('getHTML', ['padID' => $padId]);
+		return $data->html ?? '';
+	}
+
+	public function getPadRevisionsCount(string $padId): int {
+		$padId = urldecode($padId);
+		$data = $this->etherpadCallApi('getRevisionsCount', ['padID' => $padId]);
+		return (int)($data->revisions ?? 0);
+	}
+
+	public function syncPadFile(string $file): bool {
+		$l10n = \OC::$server->getL10N('ownpad');
+
+		if ($this->config->getAppValue('ownpad', 'ownpad_etherpad_enable', 'no') === 'no' ||
+			$this->config->getAppValue('ownpad', 'ownpad_etherpad_useapi', 'no') === 'no') {
+			throw new OwnpadException($l10n->t('Etherpad API is disabled.'));
+		}
+		if ($this->config->getAppValue('ownpad', 'ownpad_pad_sync_enabled', 'yes') === 'no') {
+			return false;
+		}
+
+		if (!\OC\Files\Filesystem::file_exists($file)) {
+			throw new OwnpadException($l10n->t('File not found.'));
+		}
+
+		$content = \OC\Files\Filesystem::file_get_contents($file);
+		$url = $this->extractUrlFromContent($content);
+		$padId = $this->getPadIdFromUrl($url);
+
+		$indexContent = $this->config->getAppValue('ownpad', 'ownpad_pad_sync_index_content', 'yes') === 'yes';
+		if (!$indexContent) {
+			return false;
+		}
+
+		$lastRevision = $this->extractLastRevisionFromContent($content);
+		$currentRevision = $this->getPadRevisionsCount($padId);
+
+		if ($lastRevision !== null && $currentRevision === $lastRevision) {
+			return false;
+		}
+
+		$format = $this->getPadSyncFormat();
+		$syncContent = $this->getPadSyncContent($padId, $format);
+		$newContent = $this->buildSyncedContent($url, $syncContent, $currentRevision, $format);
+
+		if ($newContent === $content) {
+			return false;
+		}
+
+		try {
+			return \OC\Files\Filesystem::file_put_contents($file, $newContent) !== false;
+		} catch (\OCP\Lock\LockedException $e) {
+			return false;
+		}
+	}
+
+	private function normalizeUrl(string $url): string {
+		/*
+		 * Not totally sure that this is the right way to proceed…
+		 *
+		 * First we decode the URL (to avoid double encode), then we
+		 * replace spaces with underscore (as they are converted as
+		 * such by Etherpad), then we encode the URL properly (and we
+		 * avoid to urlencode() the protocol scheme).
+		 *
+		 * Magic urlencode() function was stolen from this answer on
+		 * StackOverflow: <http://stackoverflow.com/a/7974253>.
+		 */
+		$url = urldecode($url);
+		$url = str_replace(' ', '_', $url);
+		$url = preg_replace_callback('#://([^/]+)/(=)?([^?]+)#', function ($match) {
+			return '://' . $match[1] . '/' . $match[2] . join('/', array_map('rawurlencode', explode('/', $match[3])));
+		}, $url);
+
+		return $url;
+	}
+
+	private function buildSyncedContent(string $url, string $syncContent, int $revision, string $format): string {
+		$normalizedContent = str_replace("\r\n", "\n", $syncContent);
+		return "[InternetShortcut]\nURL={$url}\n; ownpad_last_rev={$revision}\n; ownpad_sync_format={$format}\n\n; Ownpad full-text index (auto-generated). Do not edit.\n" . $normalizedContent;
+	}
+
+	private function extractLastRevisionFromContent(string $content): ?int {
+		if (preg_match('/^; ownpad_last_rev=(\\d+)$/m', $content, $matches)) {
+			return (int)$matches[1];
+		}
+		return null;
+	}
+
+	private function getPadSyncFormat(): string {
+		$format = strtolower(trim($this->config->getAppValue('ownpad', 'ownpad_pad_sync_format', 'plain')));
+		$allowedFormats = ['plain', 'html', 'markdown'];
+		if (!in_array($format, $allowedFormats, true)) {
+			return 'plain';
+		}
+		return $format;
+	}
+
+	private function getPadSyncContent(string $padId, string $format): string {
+		if ($format === 'html') {
+			try {
+				return $this->getPadHtml($padId);
+			} catch (Exception) {
+				return $this->getPadText($padId);
+			}
+		}
+
+		if ($format === 'markdown') {
+			try {
+				$html = $this->getPadHtml($padId);
+				if ($html !== '') {
+					$markdown = $this->convertHtmlToMarkdown($html);
+					if (trim($markdown) !== '') {
+						return $markdown;
+					}
+				}
+			} catch (Exception) {
+				// Fallback to plain text below.
+			}
+			return $this->getPadText($padId);
+		}
+
+		return $this->getPadText($padId);
+	}
+
+	/**
+	 * Convert Etherpad HTML to markdown using a simple best-effort mapping.
+	 */
+	private function convertHtmlToMarkdown(string $html): string {
+		$markdown = preg_replace('/<\\/?(?:html|head|body|div)[^>]*>/i', '', $html);
+		$markdown = preg_replace('/<br\\s*\\/?>/i', "\n", $markdown);
+		$markdown = preg_replace('/<\\/(?:p|h[1-6]|li|ul|ol|blockquote)>/i', "\n", $markdown);
+
+		$markdown = preg_replace_callback('/<h([1-6])[^>]*>(.*?)<\\/h\\1>/is', function ($matches) {
+			$level = max(1, min(6, (int)$matches[1]));
+			$text = trim(strip_tags($matches[2]));
+			return str_repeat('#', $level) . ' ' . $text . "\n";
+		}, $markdown);
+
+		$markdown = preg_replace('/<(?:strong|b)>(.*?)<\\/(?:strong|b)>/is', '**$1**', $markdown);
+		$markdown = preg_replace('/<(?:em|i)>(.*?)<\\/(?:em|i)>/is', '*$1*', $markdown);
+		$markdown = preg_replace('/<li[^>]*>(.*?)$/im', '- $1', $markdown);
+
+		$markdown = preg_replace_callback('/<a[^>]+href=(["\\\'])(.*?)\\1[^>]*>(.*?)<\\/a>/is', function ($matches) {
+			$href = trim($matches[2]);
+			$text = trim(strip_tags($matches[3]));
+			if ($text === '') {
+				$text = $href;
+			}
+			return '[' . $text . '](' . $href . ')';
+		}, $markdown);
+
+		$markdown = html_entity_decode(strip_tags($markdown), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+		$markdown = preg_replace("/\n{3,}/", "\n\n", $markdown);
+		return trim($markdown) . "\n";
 	}
 
 	public function testEtherpadToken() {

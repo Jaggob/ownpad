@@ -4,5 +4,6 @@ const path = require('path')
 webpackConfig.entry.viewer = path.resolve(path.join('src', 'viewer.js'))
 webpackConfig.entry.public = path.resolve(path.join('src', 'public.js'))
 webpackConfig.entry.settings = path.resolve(path.join('src', 'settings.js'))
+webpackConfig.entry.sync = path.resolve(path.join('src', 'sync.js'))
 
 module.exports = webpackConfig
