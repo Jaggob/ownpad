@@ -1,0 +1,41 @@
+<?php
+/**
+ * Nextcloud - Ownpad
+ *
+ * This file is licensed under the Affero General Public License
+ * version 3 or later. See the COPYING file.
+ *
+ * @copyright
+ */
+
+namespace OCA\Ownpad\Listeners;
+
+use OCA\Ownpad\Service\OwnpadService;
+use OCP\EventDispatcher\Event;
+use OCP\EventDispatcher\IEventListener;
+use OCP\Files\File;
+
+class RestorePadOnCreateListener implements IEventListener {
+	public function __construct(
+		private OwnpadService $ownpadService
+	) {
+	}
+
+	public function handle(Event $event): void {
+		if (!method_exists($event, 'getTarget')) {
+			return;
+		}
+
+		$node = $event->getTarget();
+		if (!$node instanceof File) {
+			return;
+		}
+
+		$name = $node->getName();
+		if (!str_ends_with(strtolower($name), '.pad')) {
+			return;
+		}
+
+		$this->ownpadService->restoreDeletedPadFromFile($node);
+	}
+}

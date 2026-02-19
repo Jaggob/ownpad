@@ -87,4 +87,101 @@ class AjaxController extends Controller {
 			return new JSONResponse($message, Http::STATUS_FORBIDDEN);
 		}
 	}
+
+	/**
+	 * @NoAdminRequired
+	 */
+	public function syncpad($file) {
+		\OC_Util::setupFS();
+
+		$file = isset($file) ? '/' . trim($file, '/\\') : '';
+		if ($file === '' || substr($file, -4) !== '.pad') {
+			$message = [
+				'data' => ['message' => 'Invalid file path'],
+				'status' => 'error',
+			];
+			return new JSONResponse($message, Http::STATUS_BAD_REQUEST);
+		}
+
+		try {
+			$changed = $this->service->syncPadFile($file);
+			return new JSONResponse([
+				'data' => ['changed' => $changed],
+				'status' => 'success',
+			]);
+		} catch(OwnpadException $e) {
+			$message = [
+				'data' => ['message' => $e->getMessage()],
+				'status' => 'error',
+			];
+			return new JSONResponse($message, Http::STATUS_BAD_REQUEST);
+		}
+	}
+
+	/**
+	 * @AdminRequired
+	 */
+	public function getsyncsettings() {
+		$appConfig = \OC::$server->getConfig();
+		$interval = (int)$appConfig->getAppValue('ownpad', 'ownpad_pad_sync_interval_seconds', '120');
+		$enabled = $appConfig->getAppValue('ownpad', 'ownpad_pad_sync_enabled', 'yes');
+		$indexContent = $appConfig->getAppValue('ownpad', 'ownpad_pad_sync_index_content', 'yes');
+		$format = strtolower(trim($appConfig->getAppValue('ownpad', 'ownpad_pad_sync_format', 'plain')));
+		if (!in_array($format, ['plain', 'html', 'markdown'], true)) {
+			$format = 'plain';
+		}
+
+		return new JSONResponse([
+			'data' => [
+				'intervalSeconds' => max(30, $interval),
+				'enabled' => $enabled === 'yes',
+				'indexContent' => $indexContent === 'yes',
+				'format' => $format,
+			],
+		]);
+	}
+
+	/**
+	 * @AdminRequired
+	 */
+	public function setsyncsettings($intervalSeconds, $enabled, $indexContent, $format = 'plain') {
+		$appConfig = \OC::$server->getConfig();
+		$interval = max(30, (int)$intervalSeconds);
+		$enabledValue = $this->parseBooleanInput($enabled) ? 'yes' : 'no';
+		$indexContentValue = $this->parseBooleanInput($indexContent) ? 'yes' : 'no';
+		$formatValue = strtolower(trim((string)$format));
+		if (!in_array($formatValue, ['plain', 'html', 'markdown'], true)) {
+			$formatValue = 'plain';
+		}
+		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_interval_seconds', (string)$interval);
+		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_enabled', $enabledValue);
+		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_index_content', $indexContentValue);
+		$appConfig->setAppValue('ownpad', 'ownpad_pad_sync_format', $formatValue);
+
+		return new JSONResponse([
+			'data' => ['status' => 'ok'],
+		]);
+	}
+
+	private function parseBooleanInput(mixed $value): bool {
+		if (is_bool($value)) {
+			return $value;
+		}
+
+		if (is_int($value) || is_float($value)) {
+			return (int)$value !== 0;
+		}
+
+		if (is_string($value)) {
+			$normalized = strtolower(trim($value));
+			if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
+				return true;
+			}
+			if (in_array($normalized, ['0', 'false', 'no', 'off', ''], true)) {
+				return false;
+			}
+		}
+
+		return (bool)$value;
+	}
 }

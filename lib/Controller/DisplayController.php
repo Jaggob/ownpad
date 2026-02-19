@@ -16,9 +16,11 @@ use OCA\Ownpad\Service\OwnpadService;
 
 use OCP\App\IAppManager;
 use OCP\AppFramework\Controller;
+use OCP\AppFramework\Http\RedirectResponse;
 use OCP\AppFramework\Http\TemplateResponse;
 use OCP\IRequest;
 use OCP\IURLGenerator;
+use OCP\IUserSession;
 
 class DisplayController extends Controller {
 
@@ -31,6 +33,9 @@ class DisplayController extends Controller {
 	/** @var OwnpadService */
 	private $ownpadService;
 
+	/** @var IUserSession */
+	private $userSession;
+
 	/**
 	 * @param string $AppName
 	 * @param IRequest $request
@@ -41,38 +46,101 @@ class DisplayController extends Controller {
 		IRequest $request,
 		IURLGenerator $urlGenerator,
 		IAppManager $appManager,
-		OwnpadService $ownpadService
+		OwnpadService $ownpadService,
+		IUserSession $userSession
 	) {
 		parent::__construct($AppName, $request);
 		$this->urlGenerator = $urlGenerator;
 		$this->appManager = $appManager;
 		$this->ownpadService = $ownpadService;
+		$this->userSession = $userSession;
 	}
 
 	/**
 	 * @PublicPage
 	 * @NoCSRFRequired
 	 *
-	 * @return TemplateResponse
+	 * @return TemplateResponse|RedirectResponse
 	 */
-	public function showPad($file): TemplateResponse {
-		\OC_Util::setupFS();
+	public function showPad($file) {
+		$normalizedFile = is_string($file) ? trim($file) : '';
 
-		/* Retrieve file content to find pad’s URL */
-		$content = \OC\Files\Filesystem::file_get_contents($file);
+		// Viewer may pass DAV URLs instead of filesystem paths.
+		if (preg_match('#^https?://#i', $normalizedFile)) {
+			$parsedPath = parse_url($normalizedFile, PHP_URL_PATH);
+			$parsedPath = is_string($parsedPath) ? urldecode($parsedPath) : '';
+
+			if (preg_match('#/remote\.php/dav/files/[^/]+/(.+)$#', $parsedPath, $remoteMatches)) {
+				$normalizedFile = '/' . ltrim($remoteMatches[1], '/');
+			} elseif (preg_match('#/public\.php/dav/files/([^/]+)/(.*)$#', $parsedPath, $publicMatches)) {
+				$token = $publicMatches[1];
+				$sharedFile = ltrim($publicMatches[2], '/');
+				$publicUrl = $this->urlGenerator->linkToRoute('ownpad.publicDisplay.showPad', ['token' => $token]);
+				if ($sharedFile !== '') {
+					$publicUrl .= '?file=' . rawurlencode($sharedFile);
+				}
+				return new RedirectResponse($publicUrl);
+			}
+		}
+
+		if ($normalizedFile !== '' && $normalizedFile[0] !== '/') {
+			$normalizedFile = '/' . $normalizedFile;
+		}
 
 		$params = [
 			'urlGenerator' => $this->urlGenerator,
 			'ownpad_version' => $this->appManager->getAppVersion('ownpad'),
-			'title' => $file,
+			'title' => $normalizedFile,
 		];
+		$config = \OC::$server->getConfig();
+		$syncEnabled = $this->isPadSyncActiveForFile($normalizedFile, $config);
+		if ($syncEnabled) {
+			$params['file'] = $normalizedFile;
+			$params['syncUrl'] = $this->urlGenerator->linkToRoute('ownpad.ajax.syncpad');
+			$params['syncIntervalSeconds'] = max(30, (int)$config->getAppValue('ownpad', 'ownpad_pad_sync_interval_seconds', '120'));
+		}
+
+		// Accessing /apps/ownpad without a concrete file should not trigger a 500.
+		if ($normalizedFile === '' || $normalizedFile === '/') {
+			if ($this->userSession->getUser() !== null) {
+				return new RedirectResponse($this->urlGenerator->linkToRoute('files.view.index'));
+			}
+			$params["error"] = "No pad file selected.";
+			return new TemplateResponse($this->appName, 'noviewer', $params, 'blank');
+		}
+
+		\OC_Util::setupFS();
+
+		/* Retrieve file content to find pad’s URL */
+		$content = \OC\Files\Filesystem::file_get_contents($normalizedFile);
+		if ($content === false) {
+			$params["error"] = "Cannot open selected pad file.";
+			return new TemplateResponse($this->appName, 'noviewer', $params, 'blank');
+		}
 
 		try {
-			$params['url'] = $this->ownpadService->parseOwnpadContent($file, $content);
+			$params['url'] = $this->ownpadService->parseOwnpadContent($normalizedFile, $content);
 			return new TemplateResponse($this->appName, 'viewer', $params, 'blank');
 		} catch(OwnpadException $e) {
 			$params["error"] = $e->getMessage();
 			return new TemplateResponse($this->appName, 'noviewer', $params, 'blank');
 		}
+	}
+
+	private function isPadSyncActiveForFile(string $file, \OCP\IConfig $config): bool {
+		if (substr($file, -4) !== '.pad') {
+			return false;
+		}
+
+		if ($config->getAppValue('ownpad', 'ownpad_pad_sync_enabled', 'yes') !== 'yes') {
+			return false;
+		}
+
+		if ($config->getAppValue('ownpad', 'ownpad_pad_sync_index_content', 'yes') !== 'yes') {
+			return false;
+		}
+
+		return $config->getAppValue('ownpad', 'ownpad_etherpad_enable', 'no') !== 'no'
+			&& $config->getAppValue('ownpad', 'ownpad_etherpad_useapi', 'no') !== 'no';
 	}
 }

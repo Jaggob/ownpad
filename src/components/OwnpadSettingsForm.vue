@@ -87,6 +87,12 @@
 							placeholder="example.org"
 							:value.sync="settings.etherpadCookieDomain" />
 					</fieldset>
+
+					<NcCheckboxRadioSwitch v-show="settings.etherpadUseApi"
+						type="switch"
+						:checked.sync="settings.deleteOnTrash">
+						{{ t('ownpad', 'Delete Etherpad pads when moved to trash') }}
+					</NcCheckboxRadioSwitch>
 				</fieldset>
 			</div>
 
@@ -100,6 +106,42 @@
 					<NcTextField :label="t('ownpad', 'Ethercalc Host')"
 						placeholder="https://ethercalc.org"
 						:value.sync="settings.ethercalcHost" />
+				</fieldset>
+			</div>
+
+			<div class="ownpad__section">
+				<NcCheckboxRadioSwitch type="switch"
+					:checked.sync="settings.padSyncEnabled">
+					{{ t('ownpad', 'Sync pad content into file') }}
+				</NcCheckboxRadioSwitch>
+
+				<fieldset v-show="settings.padSyncEnabled" class="ownpad__sub-section">
+					<NcTextField :label="t('ownpad', 'Sync interval (when pad is open)')"
+						type="number"
+						min="30"
+						step="1"
+						:value.sync="settings.padSyncIntervalSeconds" />
+					<div class="ownpad__labeled-entry ownpad__input">
+						<label for="ownpad-sync-format">{{ t('ownpad', 'Saved sync format') }}</label>
+						<select id="ownpad-sync-format"
+							:value="settings.padSyncFormat"
+							@change="$set(settings, 'padSyncFormat', $event.target.value)">
+							<option value="plain">
+								{{ t('ownpad', 'Plain text') }}
+							</option>
+							<option value="html">
+								{{ t('ownpad', 'HTML') }}
+							</option>
+							<option value="markdown">
+								{{ t('ownpad', 'Markdown (best effort)') }}
+							</option>
+						</select>
+					</div>
+					<NcNoteCard type="info">
+						{{ t('ownpad', 'Synchronizes pad content when you open the pad, while it stays open, and once more when you close it. This enables Nextcloud search.') }}
+						<br>
+						{{ t('ownpad', 'Markdown uses a best-effort conversion from Etherpad HTML and may not preserve every formatting detail.') }}
+					</NcNoteCard>
 				</fieldset>
 			</div>
 		</form>
@@ -144,6 +186,24 @@ export default defineComponent({
 		         return target[property]
 		 },
 		 set(target, property, newValue) {
+		     if (property === 'padSyncIntervalSeconds') {
+				 const parsed = parseInt(newValue, 10)
+				 const normalized = Number.isFinite(parsed) ? Math.max(30, parsed) : 120
+				 window.OCP.AppConfig.setValue('ownpad', 'ownpad_pad_sync_interval_seconds', normalized.toString())
+				 target[property] = normalized
+				 return true
+			 }
+
+		     if (property === 'padSyncEnabled') {
+				 const enabledValue = newValue ? 'yes' : 'no'
+				 window.OCP.AppConfig.setValue('ownpad', 'ownpad_pad_sync_enabled', enabledValue)
+				 // Keep behavior consistent with previous sync settings UI.
+				 window.OCP.AppConfig.setValue('ownpad', 'ownpad_pad_sync_index_content', enabledValue)
+				 target[property] = newValue
+				 target.padSyncIndexContent = newValue
+				 return true
+			 }
+
 		     const configName = `ownpad_${snakeCase(property)}`
 		     const value = typeof newValue === 'boolean' ? (newValue ? 'yes' : 'no') : (typeof newValue === 'string' ? newValue : JSON.stringify(newValue))
 		     window.OCP.AppConfig.setValue('ownpad', configName, value)
