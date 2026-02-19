@@ -147,8 +147,8 @@ class AjaxController extends Controller {
 	public function setsyncsettings($intervalSeconds, $enabled, $indexContent, $format = 'plain') {
 		$appConfig = \OC::$server->getConfig();
 		$interval = max(30, (int)$intervalSeconds);
-		$enabledValue = $enabled ? 'yes' : 'no';
-		$indexContentValue = $indexContent ? 'yes' : 'no';
+		$enabledValue = $this->parseBooleanInput($enabled) ? 'yes' : 'no';
+		$indexContentValue = $this->parseBooleanInput($indexContent) ? 'yes' : 'no';
 		$formatValue = strtolower(trim((string)$format));
 		if (!in_array($formatValue, ['plain', 'html', 'markdown'], true)) {
 			$formatValue = 'plain';
@@ -161,5 +161,27 @@ class AjaxController extends Controller {
 		return new JSONResponse([
 			'data' => ['status' => 'ok'],
 		]);
+	}
+
+	private function parseBooleanInput(mixed $value): bool {
+		if (is_bool($value)) {
+			return $value;
+		}
+
+		if (is_int($value) || is_float($value)) {
+			return (int)$value !== 0;
+		}
+
+		if (is_string($value)) {
+			$normalized = strtolower(trim($value));
+			if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
+				return true;
+			}
+			if (in_array($normalized, ['0', 'false', 'no', 'off', ''], true)) {
+				return false;
+			}
+		}
+
+		return (bool)$value;
 	}
 }

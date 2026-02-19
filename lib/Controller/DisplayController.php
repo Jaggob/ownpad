@@ -93,9 +93,9 @@ class DisplayController extends Controller {
 			'title' => $normalizedFile,
 		];
 		$config = \OC::$server->getConfig();
-		$syncEnabled = $this->isPadSyncActiveForFile($file, $config);
+		$syncEnabled = $this->isPadSyncActiveForFile($normalizedFile, $config);
 		if ($syncEnabled) {
-			$params['file'] = $file;
+			$params['file'] = $normalizedFile;
 			$params['syncUrl'] = $this->urlGenerator->linkToRoute('ownpad.ajax.syncpad');
 			$params['syncIntervalSeconds'] = max(30, (int)$config->getAppValue('ownpad', 'ownpad_pad_sync_interval_seconds', '120'));
 		}
