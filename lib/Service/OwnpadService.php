@@ -13,6 +13,7 @@ namespace OCA\Ownpad\Service;
 
 use Exception;
 
+use OCP\Files\File;
 use OCP\IConfig;
 use OCP\IUserSession;
 
@@ -511,6 +512,62 @@ class OwnpadService {
 		}
 	}
 
+	public function restoreDeletedPadFromFile(File $file): void {
+		if ($this->config->getAppValue('ownpad', 'ownpad_etherpad_enable', 'no') === 'no') {
+			return;
+		}
+		if ($this->config->getAppValue('ownpad', 'ownpad_etherpad_useapi', 'no') === 'no') {
+			return;
+		}
+		if (!$this->isDeleteOnTrashEnabled()) {
+			// If the original pad was never deleted, keep the existing URL as-is.
+			return;
+		}
+
+		try {
+			$content = (string)$file->getContent();
+		} catch (\Throwable) {
+			return;
+		}
+
+		$restoreHtml = $this->buildRestoreHtmlFromSyncedContent($content);
+		if ($restoreHtml === null) {
+			return;
+		}
+
+		try {
+			$url = $this->extractUrlFromContent($content);
+		} catch (\Throwable) {
+			return;
+		}
+
+		$padId = $this->extractPadIdFromUrl($url);
+		if ($padId === null) {
+			return;
+		}
+
+		$replacement = $this->createReplacementPad($padId);
+		if ($replacement === null) {
+			return;
+		}
+
+		try {
+			$this->etherpadCallApi('setHTML', ['padID' => $replacement['padId'], 'html' => $restoreHtml], 'POST');
+		} catch (Exception) {
+			try {
+				$plain = html_entity_decode(strip_tags($restoreHtml), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+				$this->etherpadCallApi('setText', ['padID' => $replacement['padId'], 'text' => $plain], 'POST');
+			} catch (Exception) {
+				return;
+			}
+		}
+
+		$updatedContent = $this->replaceUrlInOwnpadContent($content, $replacement['url']);
+		$this->writeFileNodeContentBestEffort($file, $updatedContent);
+
+		$this->storePadUrlForFileId((int)$file->getId(), $replacement['url']);
+	}
+
 	public function storePadUrlForFileId(int $fileId, string $url): void {
 		if ($fileId <= 0 || $url === '') {
 			return;
@@ -535,6 +592,164 @@ class OwnpadService {
 
 	public function isDeleteOnTrashEnabled(): bool {
 		return $this->config->getAppValue('ownpad', 'ownpad_delete_on_trash', 'no') === 'yes';
+	}
+
+	private function extractPadIdFromUrl(string $url): ?string {
+		$host = rtrim($this->config->getAppValue('ownpad', 'ownpad_etherpad_host', ''), '/');
+		if ($host === '') {
+			return null;
+		}
+
+		$pattern = '#^' . preg_quote($host, '#') . '/p/([^/]+)$#';
+		if (!preg_match($pattern, trim($url), $matches)) {
+			return null;
+		}
+
+		return $matches[1] ?? null;
+	}
+
+	private function createReplacementPad(string $originalPadId): ?array {
+		$host = rtrim($this->config->getAppValue('ownpad', 'ownpad_etherpad_host', ''), '/');
+		if ($host === '') {
+			return null;
+		}
+
+		try {
+			if (str_starts_with($originalPadId, 'g.') && str_contains($originalPadId, '$')) {
+				$group = $this->etherpadCallApi('createGroup');
+				if (!isset($group->groupID) || !is_string($group->groupID) || $group->groupID === '') {
+					return null;
+				}
+
+				$padName = $this->generatePadToken();
+				$groupPad = $this->etherpadCallApi('createGroupPad', ['groupID' => $group->groupID, 'padName' => $padName]);
+				if (!isset($groupPad->padID) || !is_string($groupPad->padID) || $groupPad->padID === '') {
+					return null;
+				}
+
+				$newPadId = $groupPad->padID;
+			} else {
+				$newPadId = $this->generatePadToken();
+				$this->etherpadCallApi('createPad', ['padID' => $newPadId]);
+			}
+
+			return [
+				'padId' => $newPadId,
+				'url' => sprintf('%s/p/%s', $host, $newPadId),
+			];
+		} catch (Exception) {
+			return null;
+		}
+	}
+
+	private function convertTextToHtml(string $text): string {
+		$normalized = str_replace("\r\n", "\n", $text);
+		return '<!DOCTYPE html><html><body><pre>' . htmlspecialchars($normalized, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</pre></body></html>';
+	}
+
+	private function buildRestoreHtmlFromSyncedContent(string $content): ?string {
+		$syncContent = $this->extractSyncedIndexContent($content);
+		if ($syncContent === null) {
+			return null;
+		}
+
+		$format = $this->extractSyncFormatFromContent($content);
+		if ($format === 'html') {
+			return $syncContent;
+		}
+		if ($format === 'markdown') {
+			return $this->convertMarkdownToHtml($syncContent);
+		}
+
+		// plain/unknown: convert plain text to minimal HTML.
+		return $this->convertTextToHtml($syncContent);
+	}
+
+	private function extractSyncFormatFromContent(string $content): string {
+		if (preg_match('/^; ownpad_sync_format=([a-z]+)$/mi', $content, $matches) === 1) {
+			return strtolower(trim($matches[1]));
+		}
+		return 'plain';
+	}
+
+	private function extractSyncedIndexContent(string $content): ?string {
+		$normalized = str_replace("\r\n", "\n", $content);
+		$marker = "; Ownpad full-text index (auto-generated). Do not edit.\n";
+		$pos = strpos($normalized, $marker);
+		if ($pos === false) {
+			return null;
+		}
+		$payload = substr($normalized, $pos + strlen($marker));
+		if (!is_string($payload)) {
+			return null;
+		}
+		return ltrim($payload, "\n");
+	}
+
+	private function convertMarkdownToHtml(string $markdown): string {
+		$source = str_replace("\r\n", "\n", $markdown);
+		$escaped = htmlspecialchars($source, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+		$lines = explode("\n", $escaped);
+		$htmlLines = [];
+		foreach ($lines as $line) {
+			$trimmed = trim($line);
+			if ($trimmed === '') {
+				$htmlLines[] = '';
+				continue;
+			}
+
+			if (preg_match('/^(#{1,6})\s+(.*)$/', $trimmed, $matches) === 1) {
+				$level = strlen($matches[1]);
+				$htmlLines[] = sprintf('<h%d>%s</h%d>', $level, $matches[2], $level);
+				continue;
+			}
+
+			$htmlLines[] = '<p>' . $trimmed . '</p>';
+		}
+
+		$html = implode("\n", $htmlLines);
+		$html = preg_replace('/\*\*(.+?)\*\*/s', '<strong>$1</strong>', $html) ?? $html;
+		$html = preg_replace('/\*(.+?)\*/s', '<em>$1</em>', $html) ?? $html;
+		$html = preg_replace('/`([^`]+)`/s', '<code>$1</code>', $html) ?? $html;
+		$html = preg_replace('/\[(.+?)\]\((https?:\/\/[^\s\)]+)\)/s', '<a href="$2">$1</a>', $html) ?? $html;
+
+		return "<!DOCTYPE html><html><body>\n{$html}\n</body></html>";
+	}
+
+	private function replaceUrlInOwnpadContent(string $content, string $newUrl): string {
+		$normalized = str_replace("\r\n", "\n", $content);
+		$updated = preg_replace('/^URL=.*$/m', 'URL=' . $newUrl, $normalized, 1);
+		if (is_string($updated) && $updated !== $normalized) {
+			return $updated;
+		}
+
+		return "[InternetShortcut]\nURL={$newUrl}\n\n" . ltrim($normalized);
+	}
+
+	private function generatePadToken(): string {
+		return \OC::$server->getSecureRandom()->generate(
+			rand(32, 50),
+			\OCP\Security\ISecureRandom::CHAR_LOWER . \OCP\Security\ISecureRandom::CHAR_DIGITS
+		);
+	}
+
+	private function writeFileNodeContentBestEffort(File $file, string $content): void {
+		try {
+			$file->putContent($content);
+			return;
+		} catch (\Throwable) {
+			// Retry via Filesystem path when node write fails under lock contexts.
+		}
+
+		try {
+			$path = $file->getPath();
+			if (is_string($path) && $path !== '') {
+				\OC\Files\Filesystem::file_put_contents($path, $content);
+			}
+		} catch (\Throwable) {
+			// Best-effort only.
+		}
 	}
 
 	/**
