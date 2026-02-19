@@ -54,7 +54,6 @@ class MoveToTrashListener implements IEventListener {
 		}
 
 		if ($this->ownpadService->isDeleteOnTrashEnabled()) {
-			$this->ownpadService->snapshotPadHtmlInFileForRestore($node, $url);
 			$this->ownpadService->deletePadFromUrl($url);
 		}
 		$this->ownpadService->deletePadUrlForFileId($fileId);

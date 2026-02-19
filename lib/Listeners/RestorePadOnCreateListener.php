@@ -22,11 +22,11 @@ class RestorePadOnCreateListener implements IEventListener {
 	}
 
 	public function handle(Event $event): void {
-		if (!method_exists($event, 'getNode')) {
+		if (!method_exists($event, 'getTarget')) {
 			return;
 		}
 
-		$node = $event->getNode();
+		$node = $event->getTarget();
 		if (!$node instanceof File) {
 			return;
 		}
