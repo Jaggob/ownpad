@@ -39,6 +39,17 @@ class MoveToTrashListener implements IEventListener {
 		$fileId = (int)$node->getId();
 		$url = $this->ownpadService->getPadUrlForFileId($fileId);
 		if ($url === null) {
+			// Backward compatibility: older .pad files may not have a stored fileId->URL mapping.
+			try {
+				$content = $node->getContent();
+				if (is_string($content) && $content !== '') {
+					$url = $this->ownpadService->extractUrlFromContent($content);
+				}
+			} catch (\Throwable) {
+				$url = null;
+			}
+		}
+		if ($url === null) {
 			return;
 		}
 
