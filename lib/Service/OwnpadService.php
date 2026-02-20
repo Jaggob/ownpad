@@ -817,11 +817,6 @@ class OwnpadService {
 			return;
 		}
 
-		$restoreHtml = $this->buildRestoreHtmlFromSyncedContent($content);
-		if ($restoreHtml === null) {
-			return;
-		}
-
 		try {
 			$url = $this->extractUrlFromContent($content);
 		} catch (\Throwable) {
@@ -837,15 +832,21 @@ class OwnpadService {
 		if ($replacement === null) {
 			return;
 		}
-
-		try {
-			$this->etherpadCallApi('setHTML', ['padID' => $replacement['padId'], 'html' => $restoreHtml], 'POST');
-		} catch (Exception) {
+		$restoreHtml = $this->buildRestoreHtmlFromSyncedContent($content);
+		if ($restoreHtml !== null) {
 			try {
-				$plain = html_entity_decode(strip_tags($restoreHtml), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-				$this->etherpadCallApi('setText', ['padID' => $replacement['padId'], 'text' => $plain], 'POST');
+				$this->etherpadCallApi('setHTML', ['padID' => $replacement['padId'], 'html' => $restoreHtml], 'POST');
 			} catch (Exception) {
-				return;
+				try {
+					$plain = html_entity_decode(strip_tags($restoreHtml), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+					$this->etherpadCallApi('setText', ['padID' => $replacement['padId'], 'text' => $plain], 'POST');
+				} catch (Exception $e) {
+					$this->logger->warning('Could not restore pad content from synced index payload', [
+						'app' => 'ownpad',
+						'fileId' => (int)$file->getId(),
+						'exception' => $e,
+					]);
+				}
 			}
 		}
 
