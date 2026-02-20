@@ -39,29 +39,16 @@ class MoveToTrashListener implements IEventListener {
 		}
 
 		$fileId = (int)$node->getId();
-		$url = null;
 		$binding = $this->padBindingService->findActiveByFileId($fileId);
-		if ($binding !== null) {
-			$baseUrl = rtrim((string)($binding['base_url'] ?? ''), '/');
-			$padId = (string)($binding['pad_id'] ?? '');
-			if ($baseUrl !== '' && $padId !== '') {
-				$url = $baseUrl . '/p/' . rawurlencode($padId);
-			}
-		}
-		if ($url === null) {
-			// Backward compatibility for legacy files without DB mapping.
-			try {
-				$content = $node->getContent();
-				if (is_string($content) && $content !== '') {
-					$url = $this->ownpadService->extractUrlFromContent($content);
-				}
-			} catch (\Throwable) {
-				$url = null;
-			}
-		}
-		if ($url === null) {
+		if ($binding === null) {
 			return;
 		}
+		$baseUrl = rtrim((string)($binding['base_url'] ?? ''), '/');
+		$padId = (string)($binding['pad_id'] ?? '');
+		if ($baseUrl === '' || $padId === '') {
+			return;
+		}
+		$url = $baseUrl . '/p/' . rawurlencode($padId);
 
 		if ($this->ownpadService->isDeleteOnTrashEnabled()) {
 			$this->ownpadService->deletePadFromUrl($url);

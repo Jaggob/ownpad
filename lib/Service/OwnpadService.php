@@ -791,7 +791,7 @@ class OwnpadService {
 			return;
 		}
 
-		$padId = $matches[1];
+		$padId = rawurldecode($matches[1]);
 		try {
 			$this->etherpadCallApi('deletePad', ['padID' => $padId]);
 		} catch (Exception) {
