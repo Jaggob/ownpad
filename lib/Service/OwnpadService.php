@@ -853,28 +853,6 @@ class OwnpadService {
 		$this->writeFileNodeContentBestEffort($file, $updatedContent);
 	}
 
-	public function storePadUrlForFileId(int $fileId, string $url): void {
-		if ($fileId <= 0 || $url === '') {
-			return;
-		}
-		$this->config->setAppValue('ownpad', 'pad_url_' . $fileId, $url);
-	}
-
-	public function getPadUrlForFileId(int $fileId): ?string {
-		if ($fileId <= 0) {
-			return null;
-		}
-		$value = $this->config->getAppValue('ownpad', 'pad_url_' . $fileId, '');
-		return $value === '' ? null : $value;
-	}
-
-	public function deletePadUrlForFileId(int $fileId): void {
-		if ($fileId <= 0) {
-			return;
-		}
-		$this->config->deleteAppValue('ownpad', 'pad_url_' . $fileId);
-	}
-
 	public function isDeleteOnTrashEnabled(): bool {
 		return $this->config->getAppValue('ownpad', 'ownpad_delete_on_trash', 'no') === 'yes';
 	}
