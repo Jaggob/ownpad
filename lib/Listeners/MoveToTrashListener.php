@@ -11,13 +11,15 @@
 namespace OCA\Ownpad\Listeners;
 
 use OCA\Ownpad\Service\OwnpadService;
+use OCA\Ownpad\Service\PadBindingService;
 use OCP\EventDispatcher\Event;
 use OCP\EventDispatcher\IEventListener;
 use OCP\Files\File;
 
 class MoveToTrashListener implements IEventListener {
 	public function __construct(
-		private OwnpadService $ownpadService
+		private OwnpadService $ownpadService,
+		private PadBindingService $padBindingService,
 	) {
 	}
 
@@ -37,9 +39,17 @@ class MoveToTrashListener implements IEventListener {
 		}
 
 		$fileId = (int)$node->getId();
-		$url = $this->ownpadService->getPadUrlForFileId($fileId);
+		$url = null;
+		$binding = $this->padBindingService->findActiveByFileId($fileId);
+		if ($binding !== null) {
+			$baseUrl = rtrim((string)($binding['base_url'] ?? ''), '/');
+			$padId = (string)($binding['pad_id'] ?? '');
+			if ($baseUrl !== '' && $padId !== '') {
+				$url = $baseUrl . '/p/' . rawurlencode($padId);
+			}
+		}
 		if ($url === null) {
-			// Backward compatibility: older .pad files may not have a stored fileId->URL mapping.
+			// Backward compatibility for legacy files without DB mapping.
 			try {
 				$content = $node->getContent();
 				if (is_string($content) && $content !== '') {
@@ -56,6 +66,5 @@ class MoveToTrashListener implements IEventListener {
 		if ($this->ownpadService->isDeleteOnTrashEnabled()) {
 			$this->ownpadService->deletePadFromUrl($url);
 		}
-		$this->ownpadService->deletePadUrlForFileId($fileId);
 	}
 }

@@ -24,4 +24,7 @@ return ['routes' => [
 	['name' => 'ajax#getsyncsettings', 'url' => '/ajax/v1.0/getsyncsettings', 'verb' => 'GET'],
 	['name' => 'ajax#setsyncsettings', 'url' => '/ajax/v1.0/setsyncsettings', 'verb' => 'POST'],
 	['name' => 'ajax#testetherpadtoken', 'url' => '/ajax/v1.0/testetherpadtoken', 'verb' => 'GET'],
+	['name' => 'ajax#backfillbindings', 'url' => '/ajax/v1.0/backfillbindings', 'verb' => 'POST'],
+	['name' => 'ajax#backfillmarkvalid', 'url' => '/ajax/v1.0/backfillmarkvalid', 'verb' => 'POST'],
+	['name' => 'ajax#backfillcreatealias', 'url' => '/ajax/v1.0/backfillcreatealias', 'verb' => 'POST'],
 ]];

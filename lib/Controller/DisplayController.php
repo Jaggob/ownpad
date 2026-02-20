@@ -117,9 +117,17 @@ class DisplayController extends Controller {
 			$params["error"] = "Cannot open selected pad file.";
 			return new TemplateResponse($this->appName, 'noviewer', $params, 'blank');
 		}
+		$fileInfo = \OC\Files\Filesystem::getFileInfo($normalizedFile);
+		$fileId = $fileInfo?->getId();
 
 		try {
-			$params['url'] = $this->ownpadService->parseOwnpadContent($normalizedFile, $content);
+			$params['url'] = $this->ownpadService->parseOwnpadContent(
+				$normalizedFile,
+				$content,
+				false,
+				$fileId,
+				fn (string $newContent): bool => \OC\Files\Filesystem::file_put_contents($normalizedFile, $newContent) !== false,
+			);
 			return new TemplateResponse($this->appName, 'viewer', $params, 'blank');
 		} catch(OwnpadException $e) {
 			$params["error"] = $e->getMessage();

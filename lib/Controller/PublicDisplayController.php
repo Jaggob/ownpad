@@ -104,6 +104,7 @@ class PublicDisplayController extends Controller {
 
 		$content = $node->getContent();
 		$file = $node->getName();
+		$fileId = (int)$node->getId();
 
 		$params = [
 			'urlGenerator' => $this->urlGenerator,
@@ -114,7 +115,18 @@ class PublicDisplayController extends Controller {
 		try {
 			$permissions = (int)$share->getPermissions();
 			$readOnly = ($permissions & Constants::PERMISSION_UPDATE) === 0;
-			$params['url'] = $this->ownpadService->parseOwnpadContent($file, $content, true, (string)$token, $readOnly);
+			$params['url'] = $this->ownpadService->parseOwnpadContent(
+				$file,
+				$content,
+				true,
+				$fileId,
+				function (string $newContent) use ($node): bool {
+					$node->setContent($newContent);
+					return true;
+				},
+				(string)$token,
+				$readOnly,
+			);
 			return new TemplateResponse($this->appName, 'viewer', $params, 'blank');
 		} catch(OwnpadException $e) {
 			$params["error"] = $e->getMessage();
